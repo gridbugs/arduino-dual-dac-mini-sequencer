@@ -1,4 +1,6 @@
-# Arduino Template
+# Arduino Dual DAC Experiment
+
+Controlling a pair of MCP4725 DACs from an Arduino without using the Arduino SDK.
 
 ## Useful Commands
 
@@ -9,5 +11,5 @@ make && avrdude -P /dev/ttyUSB0 -c arduino -p m328p -U flash:w:main.elf
 
 ### Connect USB serial console
 ```
-picocom -b9600 /dev/ttyUSB0
+picocom -b300 /dev/ttyUSB0
 ```
