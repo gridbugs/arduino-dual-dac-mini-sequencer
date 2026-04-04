@@ -6,13 +6,7 @@
 #include "uart_bitbanged.h"
 #include "adc.h"
 #include "timer.h"
-
-#include <avr/interrupt.h>
-
-#define MCP4725_ADDR_0 0x60
-#define MCP4725_ADDR_1 0x61
-
-#define MCP4725_COMMAND_UPDATE 64
+#include "mcp4725.h"
 
 uint16_t sintab[512] = 
 {
@@ -82,76 +76,6 @@ uint16_t sintab[512] =
   1847, 1872, 1897, 1922, 1948, 1973, 1998, 2023
 };
 
-void mcp4725_set_value(uint8_t address, uint16_t value) {
-
-  // Attempt to transmit START.
-  TWCR = (1<<TWINT)|(1<<TWSTA)|(1<<TWEN);
-
-  // Wait for TWINT indicating START has been transmitted.
-  while (!(TWCR & (1<<TWINT)));
-
-  // Check that START was transmitted.
-  if ((TWSR & 0xF8) != 0x08) {
-    printf("error 1 %d\n\r", value);
-    while(1);
-  }
-
-  // Transmit SLA+W.
-  TWDR = address << 1;
-  TWCR = (1<<TWINT) | (1<<TWEN);
-
-  // Wait until SLA+W was ack'd.
-  while (!(TWCR & (1<<TWINT)));
-
-  // Check that SLA+W was ack'd.
-  if ((TWSR & 0xF8) != 0x18) {
-    printf("error 2 %d\n\r", value);
-    while(1);
-  }
-
-  // Attempt to transmit data.
-  TWDR = MCP4725_COMMAND_UPDATE;
-  TWCR = (1<<TWINT) | (1<<TWEN);
-
-  // Wait until data was ack'd.
-  while (!(TWCR & (1<<TWINT)));
-
-  // Check that the dataawas ack'd.
-  if ((TWSR & 0xF8)!= 0x28) {
-    printf("error 3: %x\n\r", TWSR);
-    while(1);
-  }
-
-  // Attempt to transmit data.
-  TWDR = (uint8_t)(value >> 4);
-  TWCR = (1<<TWINT) | (1<<TWEN);
-
-  // Wait until data was ack'd.
-  while (!(TWCR & (1<<TWINT)));
-
-  // Check that the dataawas ack'd.
-  if ((TWSR & 0xF8)!= 0x28) {
-    printf("error 3: %x\n\r", TWSR);
-    while(1);
-  }
-
-  // Attempt to transmit data.
-  TWDR = (uint8_t)((value & 0xf) << 4);
-  TWCR = (1<<TWINT) | (1<<TWEN);
-
-  // Wait until data was ack'd.
-  while (!(TWCR & (1<<TWINT)));
-
-  // Check that the dataawas ack'd.
-  if ((TWSR & 0xF8)!= 0x28) {
-    printf("error 3: %x\n\r", TWSR);
-    while(1);
-  }
-
-  // Transmit STOP.
-  TWCR = (1<<TWINT)|(1<<TWEN)|(1<<TWSTO);
-}
-
 int main(void) {
 
   // Allow printing over UART. The UART pins double up as digital IO pins so this
@@ -162,8 +86,8 @@ int main(void) {
 
   unsigned int i = 0;
   while (1) {
-    mcp4725_set_value(MCP4725_ADDR_0, sintab[i]);
-    mcp4725_set_value(MCP4725_ADDR_1, sintab[(i + 128) % 512]);
+    dac0_set_value(sintab[i]);
+    dac1_set_value(sintab[(i + 128) % 512]);
     i = (i + 1) % 512;
   }
 
