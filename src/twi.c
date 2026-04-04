@@ -43,7 +43,7 @@ int twi_transmit_data(uint8_t data) {
   // Wait until data was ack'd.
   while (!(TWCR & (1<<TWINT)));
 
-  // Check that the dataawas ack'd.
+  // Check that the data was ack'd.
   if ((TWSR & 0xF8)!= 0x28) {
     return -1;
   }
