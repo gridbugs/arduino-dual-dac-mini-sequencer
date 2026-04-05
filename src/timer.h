@@ -5,7 +5,8 @@
  * use-case is to reset the clock and then poll the `timer_read` function to
  * monitor the passage of time. */
 
-void timer_enable_overflow_interrupt(void);
-void timer_init(void);
-void timer_reset(void);
-uint16_t timer_read(void);
+void timer1_enable_overflow_interrupt(void);
+void timer1_init(void);
+void timer1_reset(void);
+uint16_t timer1_read(void);
+void timer2_init_pwm_port_d_bit_3(uint8_t duty);

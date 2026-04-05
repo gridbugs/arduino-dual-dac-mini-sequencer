@@ -12,6 +12,8 @@
 
 int main(void) {
 
+  timer2_init_pwm_port_d_bit_3(0x80);
+
   // Allow printing over UART. The UART pins double up as digital IO pins so this
   // will mess with functionality, but handy in emergencies.
   USART0_bitbanged_init();
