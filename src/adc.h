@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stdint.h>
 
 void ADC_init(uint8_t pins);

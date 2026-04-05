@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stdint.h>
 
 #define BIT(n) (1 << n)

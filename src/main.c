@@ -22,6 +22,9 @@ int main(void) {
 
   printf("Hello, World!\n\r");
 
+  display_clear(BLACK);
+  display_fill_window((window_t) { .x = 4, .y = 4, .w = 100, .h = 40 }, GREEN);
+
   while (1) {}
 
   return 0;

@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stdint.h>
 
 /* This uses the 16-bit timer in "normal mode" where it continuously counts

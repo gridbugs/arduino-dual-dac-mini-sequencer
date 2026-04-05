@@ -1,3 +1,5 @@
+#pragma once
+
 // Register a stdout handler that sends over UART0.
 //
 // Port details:

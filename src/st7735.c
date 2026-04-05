@@ -4,6 +4,7 @@
 #include <avr/io.h>
 #include "util.h"
 #include "spi.h"
+#include "st7735.h"
 
 // GPIO pins connected to ST7735
 #define PORTB_RESET_PIN 1
@@ -34,6 +35,13 @@ static void hard_reset(void) {
   delay_ms(200);
 }
 
+static void select_tft(void) {
+  PORTD &= ~BIT(PORTD_TFT_CHIP_SELECT_PIN);
+}
+
+static void deselect_tft(void) {
+  PORTD |= BIT(PORTD_TFT_CHIP_SELECT_PIN);
+}
 
 // Definitions and init sequences for st77xx display devices copied from:
 // https://github.com/adafruit/Adafruit-ST7735-Library
@@ -103,26 +111,15 @@ static void hard_reset(void) {
 #define ST7735_GMCTRP1 0xE0
 #define ST7735_GMCTRN1 0xE1
 
-// Some ready-made 16-bit ('565') color settings:
-#define ST77XX_BLACK 0x0000
-#define ST77XX_WHITE 0xFFFF
-#define ST77XX_RED 0xF800
-#define ST77XX_GREEN 0x07E0
-#define ST77XX_BLUE 0x001F
-#define ST77XX_CYAN 0x07FF
-#define ST77XX_MAGENTA 0xF81F
-#define ST77XX_YELLOW 0xFFE0
-#define ST77XX_ORANGE 0xFC00
-
 static void send_command(uint8_t command, uint8_t *args, uint8_t num_args) {
-  PORTD &= ~BIT(PORTD_TFT_CHIP_SELECT_PIN);
+  select_tft();
   command_mode();
   spi_send(command);
   data_mode();
   for (uint8_t i = 0; i < num_args; i++) {
     spi_send(args[i]);
   }
-  PORTD |= BIT(PORTD_TFT_CHIP_SELECT_PIN);
+  deselect_tft();
 }
 
 static void interpret_commands(uint8_t *commands) {
@@ -219,7 +216,7 @@ void st7735_init(void) {
   DDRB |= BIT(PORTB_RESET_PIN) | BIT(PORTB_DATA_COMMAND_PIN);
   DDRD |= BIT(PORTD_TFT_CHIP_SELECT_PIN);
 
-  PORTD |= BIT(PORTD_TFT_CHIP_SELECT_PIN);
+  deselect_tft();
   data_mode();
 
   hard_reset();
@@ -228,5 +225,36 @@ void st7735_init(void) {
   interpret_commands(rcmd2_green144);
   interpret_commands(rcmd3);
 
+  uint8_t madctl =  ST77XX_MADCTL_MV | ST77XX_MADCTL_MY;
+  send_command(ST77XX_MADCTL, &madctl, 1);
+
   printf("Initialized ST7735!\n\r");
+}
+
+void st7735_prepare_for_window(window_t window) {
+  uint8_t args[4] = { 0 };
+
+  // Actual display appears to begin at an offset.
+  window.x += 3;
+  window.y += 2;
+
+  args[1] = window.x;
+  args[3] = window.x + window.w - 1;
+  send_command(ST77XX_CASET, args, 4);
+
+  args[1] = window.y;
+  args[3] = window.y + window.h - 1;
+  send_command(ST77XX_RASET, args, 4);
+
+  send_command(ST77XX_RAMWR, NULL, 0);
+  select_tft();
+}
+
+void st7735_send_colour(uint16_t colour) {
+  spi_send((uint8_t)(colour >> 8));
+  spi_send((uint8_t)colour);
+}
+
+void st7735_finalize(void) {
+  deselect_tft();
 }
