@@ -107,6 +107,7 @@ bool async_flag_check_and_clear(async_flag_t *async_flag) {
   return ret;
 }
 
+async_flag_t left_button = { 0 };
 
 ISR(PCINT2_vect) {
   uint8_t pind = PIND;
@@ -128,6 +129,9 @@ ISR(PCINT2_vect) {
   }
   if ((prev_pind & PORTD_BUTTON_MIDDLE_PIN) && !(pind & PORTD_BUTTON_MIDDLE_PIN)) {
     programming_mode = !programming_mode;
+  }
+  if ((prev_pind & PORTD_BUTTON_LEFT_PIN) && !(pind & PORTD_BUTTON_LEFT_PIN)) {
+    async_flag_set(&left_button);
   }
 
   prev_pind = pind;
@@ -354,6 +358,10 @@ int main(void) {
       }
       if (programming_mode) {
         continue;
+      }
+
+      if (async_flag_check_and_clear(&left_button)) {
+        sequence_index = 0;
       }
 
       step_t step = sequence[sequence_index];
