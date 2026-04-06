@@ -2,22 +2,33 @@
 #include <avr/io.h>
 #include "util.h"
 
-void timer1_enable_overflow_interrupt(void) {
-    TIMSK1 |= BIT(TOIE1);
-}
-
 void timer1_init(void) {
-    // Normal mode, clocked at clkIO/1024
+    // Normal mode
     TCCR1A = 0;
-    TCCR1B = BIT(CS12);
+
+    // Enable interrupts
+    TIMSK1 |= BIT(TOIE1) | BIT(OCIE1A) | BIT(OCIE1B);
 }
 
-void timer1_reset(void) {
+void timer1_reset_and_start(void) {
     TCNT1 = 0;
+    TCCR1B = BIT(CS11);
+}
+
+void timer1_stop(void) {
+    TCCR1B = 0;
 }
 
 uint16_t timer1_read(void) {
     return TCNT1;
+}
+
+void timer1_set_output_compare_a(uint16_t value) {
+  OCR1A = value;
+}
+
+void timer1_set_output_compare_b(uint16_t value) {
+  OCR1B = value;
 }
 
 void timer2_init_pwm_port_d_bit_3(uint8_t duty) {

@@ -1,4 +1,6 @@
-{ pkgs ? import <nixpkgs> {} }:
+{
+  pkgs ? import <nixpkgs> { },
+}:
 let
   avr-gcc = pkgs.pkgsCross.avr.buildPackages.gcc;
 in
@@ -8,5 +10,6 @@ pkgs.mkShell {
     avrdude
     picocom
     ctags
+    python3
   ];
 }
