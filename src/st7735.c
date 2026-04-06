@@ -9,8 +9,11 @@
 // GPIO pins connected to ST7735
 #define PORTB_RESET_PIN 1
 #define PORTB_DATA_COMMAND_PIN 0
-#define PORTD_TFT_CHIP_SELECT_PIN 7
 
+// Note that this happens to be the same pin that the Atmega uses for it's own
+// chip select when configured as a slave device (which it is not in this
+// case). This is a coincidence.
+#define PORTB_TFT_CHIP_SELECT_PIN 2
 
 static void reset_low(void) {
   PORTB &= ~BIT(PORTB_RESET_PIN);
@@ -36,11 +39,11 @@ static void hard_reset(void) {
 }
 
 static void select_tft(void) {
-  PORTD &= ~BIT(PORTD_TFT_CHIP_SELECT_PIN);
+  PORTB &= ~BIT(PORTB_TFT_CHIP_SELECT_PIN);
 }
 
 static void deselect_tft(void) {
-  PORTD |= BIT(PORTD_TFT_CHIP_SELECT_PIN);
+  PORTB |= BIT(PORTB_TFT_CHIP_SELECT_PIN);
 }
 
 // Definitions and init sequences for st77xx display devices copied from:
@@ -217,8 +220,7 @@ void st7735_init(void) {
   spi_init();
 
   // Configure GPIO pins.
-  DDRB |= BIT(PORTB_RESET_PIN) | BIT(PORTB_DATA_COMMAND_PIN);
-  DDRD |= BIT(PORTD_TFT_CHIP_SELECT_PIN);
+  DDRB |= BIT(PORTB_TFT_CHIP_SELECT_PIN) | BIT(PORTB_RESET_PIN) | BIT(PORTB_DATA_COMMAND_PIN);
 
   deselect_tft();
   data_mode();
