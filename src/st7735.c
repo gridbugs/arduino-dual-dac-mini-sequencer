@@ -206,6 +206,10 @@ static uint8_t rcmd3[] = {                 // 7735R init, part 3 (red or green t
     ST77XX_DISPON,    ST_CMD_DELAY, //  4: Main screen turn on, no args w/delay
       100 };                        //     100 ms delay
 
+static uint8_t cursor_x;
+static uint8_t cursor_y;
+static window_t current_window;
+
 void st7735_init(void) {
 
   printf("Starting ST7735 init...\n\r");
@@ -225,34 +229,54 @@ void st7735_init(void) {
   interpret_commands(rcmd2_green144);
   interpret_commands(rcmd3);
 
-  uint8_t madctl =  ST77XX_MADCTL_MV | ST77XX_MADCTL_MY;
+  uint8_t madctl =  ST77XX_MADCTL_MV | ST77XX_MADCTL_MY | ST7735_MADCTL_BGR;
   send_command(ST77XX_MADCTL, &madctl, 1);
 
   printf("Initialized ST7735!\n\r");
 }
 
+#define PAD_X 3
+#define PAD_Y 2
+
 void st7735_prepare_for_window(window_t window) {
   uint8_t args[4] = { 0 };
 
   // Actual display appears to begin at an offset.
-  window.x += 3;
-  window.y += 2;
+  window.x += PAD_X;
+  window.y += PAD_Y;
+  current_window = window;
 
   args[1] = window.x;
   args[3] = window.x + window.w - 1;
+  if (args[3] >= ST7735_WIDTH + PAD_X) {
+    args[3] = ST7735_WIDTH - 1 + PAD_X;
+  }
   send_command(ST77XX_CASET, args, 4);
 
   args[1] = window.y;
   args[3] = window.y + window.h - 1;
+  if (args[3] >= ST7735_HEIGHT + PAD_Y) {
+    args[3] = ST7735_HEIGHT - 1 + PAD_Y;
+  }
   send_command(ST77XX_RASET, args, 4);
 
   send_command(ST77XX_RAMWR, NULL, 0);
   select_tft();
+
+  cursor_x = window.x;
+  cursor_y = window.y;
 }
 
 void st7735_send_colour(uint16_t colour) {
-  spi_send((uint8_t)(colour >> 8));
-  spi_send((uint8_t)colour);
+  if (cursor_x < ST7735_WIDTH + PAD_X && cursor_y < ST7735_HEIGHT + PAD_Y) {
+    spi_send((uint8_t)(colour >> 8));
+    spi_send((uint8_t)colour);
+  }
+  cursor_x++;
+  if (cursor_x == current_window.x + current_window.w) {
+    cursor_x = current_window.x;
+    cursor_y++;
+  }
 }
 
 void st7735_finalize(void) {

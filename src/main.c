@@ -9,10 +9,11 @@
 #include "mcp4725.h"
 #include "display.h"
 
+#define DISPLAY_BACKLIGHT_BRIGHTNESS 0x10
 
 int main(void) {
 
-  timer2_init_pwm_port_d_bit_3(0x80);
+  timer2_init_pwm_port_d_bit_3(DISPLAY_BACKLIGHT_BRIGHTNESS);
 
   // Allow printing over UART. The UART pins double up as digital IO pins so this
   // will mess with functionality, but handy in emergencies.
@@ -22,8 +23,11 @@ int main(void) {
 
   printf("Hello, World!\n\r");
 
-  display_clear(BLACK);
-  display_fill_window((window_t) { .x = 4, .y = 4, .w = 100, .h = 40 }, GREEN);
+  display_clear(MAGENTA);
+  display_text("purple", 20, 10, WHITE, BLACK, 1);
+  display_text("earth", 30, 30, WHITE, BLACK, 1);
+  display_text("hypoth-", 10, 50, WHITE, BLACK, 1);
+  display_text("esis", 50, 70, WHITE, BLACK, 1);
 
   while (1) {}
 

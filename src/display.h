@@ -19,3 +19,4 @@
 void display_init(void);
 void display_fill_window(window_t window, uint16_t colour);
 void display_clear(uint16_t colour);
+void display_text(char* text, uint8_t x, uint8_t y, uint16_t fg, uint16_t bg, uint8_t scale_radix);
