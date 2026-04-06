@@ -11,10 +11,29 @@
 #include "display.h"
 #include "notes.h"
 
-#define DISPLAY_BACKLIGHT_BRIGHTNESS 0x10
+#define DISPLAY_BACKLIGHT_BRIGHTNESS 0x20
+
+#define PORTD_ENCODER_A BIT(7)
+#define PORTD_ENCODER_B BIT(6)
+#define PORTD_ENCODER_BUTTON_PIN BIT(5)
+#define PORTD_BUTTON_RIGHT_PIN BIT(4)
+#define PORTD_BUTTON_MIDDLE_PIN BIT(2)
+#define PORTD_BUTTON_LEFT_PIN BIT(0)
 
 // Leave space for TX (bit 1) and PWM (bit 3)
-#define PORTD_INPUT_PINS (BIT(0) | BIT(2) | BIT(4) | BIT(5) | BIT(6) | BIT(7))
+#define PORTD_INPUT_PINS ( \
+    PORTD_ENCODER_A | \
+    PORTD_ENCODER_B | \
+    PORTD_ENCODER_BUTTON_PIN | \
+    PORTD_BUTTON_RIGHT_PIN | \
+    PORTD_BUTTON_MIDDLE_PIN | \
+    PORTD_BUTTON_LEFT_PIN )
+
+volatile bool programming_mode = false;
+volatile bool internal_clock = true;
+
+// Unit is ms added to the iteration time of the main loop (which is pretty small!).
+uint16_t internal_clock_delay = 100;
 
 typedef enum {
   REST_01 = 0,
@@ -72,41 +91,46 @@ rotary_encoder_history_t rotary_encoder_history = {
 
 uint8_t prev_pind;
 
-volatile uint8_t button_right_count_isr_incremented = 0;
-uint8_t button_right_count = 0;
+typedef struct {
+  volatile uint8_t count_setter_incremented;
+  uint8_t count_to_check;
+} async_flag_t;
 
-bool button_right_check_and_clear(void) {
-  uint8_t button_right_count_isr_incremented_copy = button_right_count_isr_incremented;
-  bool ret = button_right_count != button_right_count_isr_incremented_copy;
-  button_right_count = button_right_count_isr_incremented_copy;
+void async_flag_set(async_flag_t *async_flag) {
+  async_flag->count_setter_incremented++;
+}
+
+bool async_flag_check_and_clear(async_flag_t *async_flag) {
+  uint8_t count_copy = async_flag->count_setter_incremented;
+  bool ret = count_copy != async_flag->count_to_check;
+  async_flag->count_to_check = count_copy;
   return ret;
 }
+
 
 ISR(PCINT2_vect) {
   uint8_t pind = PIND;
   uint8_t rotary_encoder_state = pind >> 6;
-  rotary_encoder_position += rotary_encoder_update(&rotary_encoder_history, rotary_encoder_state);
+  int8_t rotary_encoder_delta = rotary_encoder_update(&rotary_encoder_history, rotary_encoder_state);
+  if (programming_mode) {
+    rotary_encoder_position += rotary_encoder_delta;
+  } else if (internal_clock) {
+    int16_t internal_clock_delay_signed = (int16_t)internal_clock_delay + ((int16_t)rotary_encoder_delta) * 10;
+    if (internal_clock_delay_signed >= 0) {
+      internal_clock_delay = (uint16_t)internal_clock_delay_signed;
+    }
+  }
 
-  if ((prev_pind & BIT(4)) && !(pind & BIT(4))) {
-    button_right_count_isr_incremented++;
+  if ((prev_pind & PORTD_BUTTON_RIGHT_PIN) && !(pind & PORTD_BUTTON_RIGHT_PIN)) {
+    if (!programming_mode) {
+      internal_clock = !internal_clock;
+    }
+  }
+  if ((prev_pind & PORTD_BUTTON_MIDDLE_PIN) && !(pind & PORTD_BUTTON_MIDDLE_PIN)) {
+    programming_mode = !programming_mode;
   }
 
   prev_pind = pind;
-}
-
-typedef struct {
-  bool enabled;
-  note_t note;
-  uint8_t velocity;
-} step_t;
-
-#define NUM_STEPS 16
-step_t sequence[NUM_STEPS];
-
-void init_sequence(void) {
-  for (int i = 0; i < NUM_STEPS; i++) {
-    sequence[i].enabled = false;
-  }
 }
 
 #define PORTC_GATE_PIN BIT(0)
@@ -133,21 +157,14 @@ ISR(TIMER1_COMPB_vect) {
   gate_off();
 }
 
-volatile uint8_t clock_rising_edge_count_isr_incremented = 0;
-uint8_t clock_rising_edge_count = 0;
+async_flag_t clock_rising_edge = { 0 };
 
-bool clock_rising_edge_check_and_clear(void) {
-  uint8_t clock_rising_edge_count_isr_incremented_copy = clock_rising_edge_count_isr_incremented;
-  bool ret = clock_rising_edge_count != clock_rising_edge_count_isr_incremented_copy;
-  clock_rising_edge_count = clock_rising_edge_count_isr_incremented_copy;
-  return ret;
-}
 uint8_t prev_pinc;
 
 ISR(PCINT1_vect) {
   uint8_t pinc = PINC;
   if (!(prev_pinc & PORTC_CLOCK_PIN) && (pinc & PORTC_CLOCK_PIN)) {
-    clock_rising_edge_count_isr_incremented++;
+    async_flag_set(&clock_rising_edge);
   }
   prev_pinc = pinc;
 }
@@ -156,6 +173,51 @@ ISR(PCINT1_vect) {
 #define NOTE_DISPLAY_Y 55
 #define NOTE_DISPLAY_FG WHITE
 #define NOTE_DISPLAY_BG BLACK
+
+typedef struct {
+  bool enabled;
+  note_t note;
+  uint8_t velocity;
+} step_t;
+
+#define NUM_STEPS 16
+step_t sequence[NUM_STEPS];
+
+void init_sequence(void) {
+  for (int i = 0; i < NUM_STEPS; i++) {
+    sequence[i].enabled = false;
+  }
+}
+
+char progress_buffer[6] = { 0 };
+char status_buffer[3] = { 0 };
+int sequence_index = 0;
+
+void display_current_note(void) {
+  step_t step = sequence[sequence_index];
+  if (step.enabled) {
+    display_text(step.note.name, NOTE_DISPLAY_X, NOTE_DISPLAY_Y, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
+  } else {
+    display_text(" - ", NOTE_DISPLAY_X, NOTE_DISPLAY_Y, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
+  }
+}
+
+void display_bottom_line(void) {
+  sprintf(progress_buffer, "%02d/%d", sequence_index, NUM_STEPS);
+  display_text(progress_buffer, DISPLAY_WIDTH - 5 * 8, DISPLAY_HEIGHT - 8, BLACK, WHITE, 0);
+
+  if (programming_mode) {
+    status_buffer[0] = 'P';
+  } else {
+    status_buffer[0] = 'R';
+  }
+  if (internal_clock) {
+    status_buffer[1] = 'I';
+  } else {
+    status_buffer[1] = 'E';
+  }
+  display_text(status_buffer, 0, DISPLAY_HEIGHT - 8, BLACK, WHITE, 0);
+}
 
 int main(void) {
 
@@ -273,30 +335,47 @@ int main(void) {
   };
 
 
-  int sequence_index = 0;
+  display_text("...", NOTE_DISPLAY_X, NOTE_DISPLAY_Y, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
+
   while (1) {
-
-    step_t step = sequence[sequence_index];
-    if (step.enabled) {
-      display_text(step.note.name, NOTE_DISPLAY_X, NOTE_DISPLAY_Y, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
-      dac0_set_value(step.note.dac_value);
-      dac1_set_value(step.velocity << 4);
-
-      // Start the timer. A pair of compare interrupts will cause the gate to
-      // be set and cleared. This makes it easy to add a delay before setting
-      // the gate to account for a delay in the DAC output changinging, and to
-      // clear the gate after a fixed period of time.
-      timer1_reset_and_start();
+    if (programming_mode) {
+      display_current_note();
+      display_bottom_line();
     } else {
-      display_text(" - ", NOTE_DISPLAY_X, NOTE_DISPLAY_Y, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
-    }
+      while (true) {
+        if (programming_mode) {
+          break;
+        } else if (internal_clock) {
+          delay_ms(internal_clock_delay);
+          break;
+        } else if (async_flag_check_and_clear(&clock_rising_edge)) {
+          break;
+        }
+      }
+      if (programming_mode) {
+        continue;
+      }
 
-    sequence_index++;
-    if (sequence_index == NUM_STEPS) {
-      sequence_index = 0;
-    }
+      step_t step = sequence[sequence_index];
+      if (step.enabled) {
+        dac0_set_value(step.note.dac_value);
+        dac1_set_value(step.velocity << 4);
 
-    while (!clock_rising_edge_check_and_clear());
+        // Start the timer. A pair of compare interrupts will cause the gate to
+        // be set and cleared. This makes it easy to add a delay before setting
+        // the gate to account for a delay in the DAC output changinging, and to
+        // clear the gate after a fixed period of time.
+        timer1_reset_and_start();
+      }
+
+      display_current_note();
+      display_bottom_line();
+
+      sequence_index++;
+      if (sequence_index == NUM_STEPS) {
+        sequence_index = 0;
+      }
+    }
   }
 
   return 0;
