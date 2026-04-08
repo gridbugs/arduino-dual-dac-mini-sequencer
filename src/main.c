@@ -249,6 +249,10 @@ void display_current_velocity(void) {
   display_text(buf, NOTE_DISPLAY_X, NOTE_DISPLAY_Y + 16, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
 }
 
+void clear_velocity(void) {
+  display_text("   ", NOTE_DISPLAY_X, NOTE_DISPLAY_Y + 16, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
+}
+
 void display_bottom_line(void) {
   sprintf(progress_buffer, "%02d/%d", sequence_index, NUM_STEPS);
   display_text(progress_buffer, DISPLAY_WIDTH - 5 * 8, DISPLAY_HEIGHT - 8, BLACK, WHITE, 0);
@@ -346,9 +350,11 @@ int main(void) {
   display_text("...", NOTE_DISPLAY_X, NOTE_DISPLAY_Y, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
   int16_t prev_rotary_encoder_position = rotary_encoder_position;
   step_t *step = &sequence[sequence_index];
+  bool prev_programming_mode = programming_mode;
 
   while (1) {
     if (programming_mode) {
+      prev_programming_mode = true;
       step = &sequence[sequence_index];
       if (right_button_state) {
         int16_t velocity = step->velocity;
@@ -380,6 +386,10 @@ int main(void) {
       display_current_velocity();
       display_bottom_line();
     } else {
+      if (prev_programming_mode) {
+        clear_velocity();
+      }
+      prev_programming_mode = false;
       while (true) {
         if (rotary_encoder_position > prev_rotary_encoder_position) {
           step_set_note(step, step->note_index + 1);
