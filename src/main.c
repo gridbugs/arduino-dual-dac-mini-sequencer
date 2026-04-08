@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include "util.h"
@@ -9,6 +10,7 @@
 #include "timer.h"
 #include "mcp4725.h"
 #include "display.h"
+#include "note.h"
 #include "notes.h"
 
 #define DISPLAY_BACKLIGHT_BRIGHTNESS 0x20
@@ -29,6 +31,10 @@
     PORTD_BUTTON_MIDDLE_PIN | \
     PORTD_BUTTON_LEFT_PIN )
 
+#define NUM_STEPS 16
+#define VELOCITY_STEP_SIZE 32
+
+volatile int sequence_index = 0;
 volatile bool programming_mode = false;
 volatile bool internal_clock = true;
 
@@ -83,7 +89,7 @@ int8_t rotary_encoder_update(rotary_encoder_history_t *history, uint8_t current_
   return 0;
 }
 
-int8_t rotary_encoder_position = 0;
+int16_t rotary_encoder_position = 0;
 rotary_encoder_history_t rotary_encoder_history = {
   .last_rest = REST_01,
   .last_turn = TURN_INIT,
@@ -108,21 +114,20 @@ bool async_flag_check_and_clear(async_flag_t *async_flag) {
 }
 
 async_flag_t left_button = { 0 };
+async_flag_t middle_button = { 0 };
+async_flag_t right_button = { 0 };
+
+volatile bool left_button_state = false;
+volatile bool middle_button_state = false;
+volatile bool right_button_state = false;
 
 ISR(PCINT2_vect) {
   uint8_t pind = PIND;
-  uint8_t rotary_encoder_state = pind >> 6;
-  int8_t rotary_encoder_delta = rotary_encoder_update(&rotary_encoder_history, rotary_encoder_state);
-  if (programming_mode) {
-    rotary_encoder_position += rotary_encoder_delta;
-  } else if (internal_clock) {
-    int16_t internal_clock_delay_signed = (int16_t)internal_clock_delay + ((int16_t)rotary_encoder_delta) * 10;
-    if (internal_clock_delay_signed >= 0) {
-      internal_clock_delay = (uint16_t)internal_clock_delay_signed;
-    }
-  }
 
-  if ((prev_pind & PORTD_BUTTON_RIGHT_PIN) && !(pind & PORTD_BUTTON_RIGHT_PIN)) {
+
+  right_button_state = !(pind & PORTD_BUTTON_RIGHT_PIN);
+  if ((prev_pind & PORTD_BUTTON_RIGHT_PIN) && right_button_state) {
+    async_flag_set(&right_button);
     if (!programming_mode) {
       internal_clock = !internal_clock;
     }
@@ -130,9 +135,21 @@ ISR(PCINT2_vect) {
   if ((prev_pind & PORTD_BUTTON_MIDDLE_PIN) && !(pind & PORTD_BUTTON_MIDDLE_PIN)) {
     programming_mode = !programming_mode;
   }
+  if ((prev_pind & PORTD_ENCODER_BUTTON_PIN) && !(pind & PORTD_ENCODER_BUTTON_PIN)) {
+    if (programming_mode) {
+      sequence_index = (sequence_index + 1) % NUM_STEPS;
+    }
+  }
+  if ((prev_pind & PORTD_BUTTON_MIDDLE_PIN) && !(pind & PORTD_BUTTON_MIDDLE_PIN)) {
+    async_flag_set(&middle_button);
+  }
   if ((prev_pind & PORTD_BUTTON_LEFT_PIN) && !(pind & PORTD_BUTTON_LEFT_PIN)) {
     async_flag_set(&left_button);
   }
+
+  uint8_t rotary_encoder_state = pind >> 6;
+  int8_t rotary_encoder_delta = rotary_encoder_update(&rotary_encoder_history, rotary_encoder_state);
+  rotary_encoder_position += (int16_t)rotary_encoder_delta;
 
   prev_pind = pind;
 }
@@ -181,29 +198,55 @@ ISR(PCINT1_vect) {
 typedef struct {
   bool enabled;
   note_t note;
+  uint8_t note_index;
   uint8_t velocity;
 } step_t;
 
-#define NUM_STEPS 16
 step_t sequence[NUM_STEPS];
+
+void step_set_note(step_t *step, uint8_t note_index) {
+  step->note_index = note_index;
+  note_t note = note_from_index(note_index);
+  memcpy(&step->note, &note, sizeof(note_t));
+}
+
+void sequence_enable_step(int i, uint8_t note_index, uint8_t velocity) {
+  step_t *step = &sequence[i];
+  step->enabled = true;
+  step->velocity = velocity;
+  step_set_note(step, note_index);
+}
+
+void sequence_disable_step(int i) {
+  sequence[i].enabled = false;
+}
 
 void init_sequence(void) {
   for (int i = 0; i < NUM_STEPS; i++) {
-    sequence[i].enabled = false;
+    sequence_enable_step(i, NOTE_C_3, 127);
+    sequence_disable_step(i);
   }
 }
 
 char progress_buffer[6] = { 0 };
 char status_buffer[3] = { 0 };
-int sequence_index = 0;
 
 void display_current_note(void) {
   step_t step = sequence[sequence_index];
+  uint16_t fg;
   if (step.enabled) {
-    display_text(step.note.name, NOTE_DISPLAY_X, NOTE_DISPLAY_Y, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
+    fg = WHITE;
   } else {
-    display_text(" - ", NOTE_DISPLAY_X, NOTE_DISPLAY_Y, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
+    fg = GREY;
   }
+  display_text(step.note.name, NOTE_DISPLAY_X, NOTE_DISPLAY_Y, fg, NOTE_DISPLAY_BG, 1);
+}
+
+void display_current_velocity(void) {
+  static char buf[4];
+  step_t *step = &sequence[sequence_index];
+  sprintf(buf, "%03d", step->velocity);
+  display_text(buf, NOTE_DISPLAY_X, NOTE_DISPLAY_Y + 16, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
 }
 
 void display_bottom_line(void) {
@@ -266,87 +309,92 @@ int main(void) {
 
   display_clear(BLACK);
 
-  sequence[0] = (step_t) {
-    .enabled = false,
-  };
-  sequence[1] = (step_t) {
-    .enabled = true,
-    .note = NOTE_C_3,
-    .velocity = 127,
-  };
-  sequence[2] = (step_t) {
-    .enabled = true,
-    .note = NOTE_C_4,
-    .velocity = 127,
-  };
-  sequence[3] = (step_t) {
-    .enabled = true,
-    .note = NOTE_C_3,
-    .velocity = 255,
-  };
-  sequence[4] = (step_t) {
-    .enabled = true,
-    .note = NOTE_D_SHARP_3,
-    .velocity = 127,
-  };
-  sequence[5] = (step_t) {
-    .enabled = true,
-    .note = NOTE_F_SHARP_3,
-    .velocity = 127,
-  };
-  sequence[6] = (step_t) {
-    .enabled = false,
-    .note = NOTE_A_3,
-    .velocity = 127,
-  };
-  sequence[7] = (step_t) {
-    .enabled = false,
-  };
+  // Initial sequence
+  for (int i = 0; i < 2; i++) {
+    int offset = i * 8;
+    sequence_enable_step(offset + 0, NOTE_C_2, 127);
+    sequence_disable_step(offset + 1);
+    sequence_enable_step(offset + 2, NOTE_C_2, 127);
+    sequence_disable_step(offset + 3);
+    sequence_enable_step(offset + 4, NOTE_C_2, 255);
+    sequence_disable_step(offset + 5);
+    sequence_enable_step(offset + 6, NOTE_C_2, 127);
+    sequence_disable_step(offset + 7);
+  }
 
-  sequence[8] = (step_t) {
-    .enabled = true,
-    .note = NOTE_C_4,
-    .velocity = 127,
-  };
-  sequence[9] = (step_t) {
-    .enabled = false,
-  };
-  sequence[10] = (step_t) {
-    .enabled = true,
-    .note = NOTE_F_SHARP_3,
-    .velocity = 255,
-  };
-  sequence[11] = (step_t) {
-    .enabled = true,
-    .note = NOTE_A_3,
-    .velocity = 255,
-  };
-  sequence[12] = (step_t) {
-    .enabled = false,
-  };
-  sequence[13] = (step_t) {
-    .enabled = true,
-    .note = NOTE_D_SHARP_3,
-    .velocity = 127,
-  };
-  sequence[14] = (step_t) {
-    .enabled = false,
-  };
-  sequence[15] = (step_t) {
-    .enabled = true,
-    .note = NOTE_F_SHARP_3,
-    .velocity = 255,
-  };
+
+#ifdef INIT_TUNE
+  sequence_disable_step(0);
+  sequence_enable_step(1, NOTE_C_3, 127);
+  sequence_enable_step(2, NOTE_C_4, 127);
+  sequence_enable_step(3, NOTE_C_3, 255);
+  sequence_enable_step(4, NOTE_D_SHARP_3, 127);
+  sequence_enable_step(5, NOTE_F_SHARP_3, 127);
+  sequence_enable_step(6, NOTE_A_3, 127);
+  sequence_disable_step(7);
+  sequence_enable_step(8, NOTE_C_4, 127);
+  sequence_disable_step(9);
+  sequence_enable_step(10, NOTE_F_SHARP_3, 127);
+  sequence_enable_step(11, NOTE_A_3, 255);
+  sequence_disable_step(12);
+  sequence_enable_step(13, NOTE_D_SHARP_3, 127);
+  sequence_disable_step(14);
+  sequence_enable_step(15, NOTE_F_SHARP_3,  255);
+#endif
 
 
   display_text("...", NOTE_DISPLAY_X, NOTE_DISPLAY_Y, NOTE_DISPLAY_FG, NOTE_DISPLAY_BG, 1);
+  int16_t prev_rotary_encoder_position = rotary_encoder_position;
+  step_t *step = &sequence[sequence_index];
 
   while (1) {
     if (programming_mode) {
+      step = &sequence[sequence_index];
+      if (right_button_state) {
+        int16_t velocity = step->velocity;
+        if (rotary_encoder_position > prev_rotary_encoder_position) {
+          velocity += VELOCITY_STEP_SIZE;
+        } else if (rotary_encoder_position < prev_rotary_encoder_position) {
+          velocity -= VELOCITY_STEP_SIZE;
+        }
+        step->velocity = (uint8_t)velocity;
+      } else {
+        if (rotary_encoder_position > prev_rotary_encoder_position) {
+          step_set_note(step, step->note_index + 1);
+        } else if (rotary_encoder_position < prev_rotary_encoder_position) {
+          step_set_note(step, step->note_index - 1);
+        }
+      }
+      if (async_flag_check_and_clear(&left_button)) {
+        step->enabled = !step->enabled;
+      }
+      if (step->enabled) {
+        dac0_set_value(step->note.dac_value);
+        dac1_set_value(step->velocity << 4);
+      } else {
+        dac0_set_value(0);
+        dac1_set_value(0);
+      }
+      prev_rotary_encoder_position = rotary_encoder_position;
       display_current_note();
+      display_current_velocity();
       display_bottom_line();
     } else {
       while (true) {
+        if (rotary_encoder_position > prev_rotary_encoder_position) {
+          step_set_note(step, step->note_index + 1);
+          dac0_set_value(step->note.dac_value);
+          dac1_set_value(step->velocity << 4);
+        } else if (rotary_encoder_position < prev_rotary_encoder_position) {
+          step_set_note(step, step->note_index - 1);
+          dac0_set_value(step->note.dac_value);
+          dac1_set_value(step->velocity << 4);
+        }
+        prev_rotary_encoder_position = rotary_encoder_position;
+
+        if (async_flag_check_and_clear(&left_button)) {
+          step->enabled = !step->enabled;
+        }
         if (programming_mode) {
           break;
         } else if (internal_clock) {
@@ -355,19 +403,18 @@ int main(void) {
         } else if (async_flag_check_and_clear(&clock_rising_edge)) {
           break;
         }
+
       }
       if (programming_mode) {
         continue;
       }
 
-      if (async_flag_check_and_clear(&left_button)) {
-        sequence_index = 0;
-      }
+      step = &sequence[sequence_index];
 
-      step_t step = sequence[sequence_index];
-      if (step.enabled) {
-        dac0_set_value(step.note.dac_value);
-        dac1_set_value(step.velocity << 4);
+
+      if (step->enabled) {
+        dac0_set_value(step->note.dac_value);
+        dac1_set_value(step->velocity << 4);
 
         // Start the timer. A pair of compare interrupts will cause the gate to
         // be set and cleared. This makes it easy to add a delay before setting

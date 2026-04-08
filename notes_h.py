@@ -1,11 +1,8 @@
 print(
     """
 #pragma once
-#include "note.h"
 """
 )
-
-dac_value_per_semitone = 32
 
 note_names = [
     "C ",
@@ -34,12 +31,9 @@ for octave in range(0, num_octaves):
         note_for_constant_name = note_to_display.replace("#", "_SHARP_").replace(
             " ", "_"
         )
-        dac_value = i * dac_value_per_semitone
         print(
-            '#define NOTE_{note_for_constant_name} ((note_t) {{ .name = "{name_to_display}", .dac_value = {dac_value} }})'.format(
-                note_for_constant_name=note_for_constant_name,
-                name_to_display=note_to_display,
-                dac_value=dac_value,
+            "#define NOTE_{note_for_constant_name} {i}".format(
+                note_for_constant_name=note_for_constant_name, i=i
             )
         )
         i += 1
