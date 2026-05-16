@@ -35,9 +35,11 @@ int twi_transmit_address(uint8_t address, bool write) {
   return 0;
 }
 
-int twi_transmit_data(uint8_t data) {
-  // Attempt to transmit data.
+void twi_transmit_data_start(uint8_t data) {
   TWDR = data;
+}
+
+int twi_transmit_data_end(void) {
   TWCR = (1<<TWINT) | (1<<TWEN);
 
   // Wait until data was ack'd.
@@ -49,6 +51,11 @@ int twi_transmit_data(uint8_t data) {
   }
 
   return 0;
+}
+
+int twi_transmit_data(uint8_t data) {
+  twi_transmit_data_start(data);
+  return twi_transmit_data_end();
 }
 
 void twi_transmit_stop(void) {
