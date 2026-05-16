@@ -7,12 +7,14 @@ OBJ=$(SRC:.c=.o)
 NOTES=$(SRC_DIR)/notes.h
 
 CC=avr-gcc
+STRIP=avr-strip
 MCU=atmega328p
 
 CFLAGS=-mmcu=$(MCU) -std=c99 -Wall -O1
 
 $(TARGET).elf: $(OBJ)
 	$(CC) $(CFLAGS) $(OBJ) -o $@
+	$(STRIP) $@
 
 %.o : %.c $(NOTES)
 	$(CC) $(CFLAGS) -c -o $@ $<
